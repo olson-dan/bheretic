@@ -270,7 +270,7 @@ fn update(
                 if state.selection == item_count {
                     match items.action {
                         MenuAction::None => break,
-                        MenuAction::SetMenu(m) => {
+                        MenuAction::SetMenu(m) | MenuAction::NetCheck(_, m) => {
                             state.selection = 0;
                             let last = state.cur;
                             state.stack.push(last);
@@ -353,10 +353,8 @@ fn render(
     render_specific_menus(&wad, &mut vid, &state.cur, state.time);
 
     let mut y = orig_y;
-    let mut item_count = 0;
     for (ident, item) in items.iter() {
         if ident.0 == state.cur {
-            item_count += 1;
             if !item.text.is_empty() {
                 render_text(&wad, &mut vid, "FONTB_S", item.text, x, y);
             }
@@ -364,8 +362,7 @@ fn render(
         }
     }
 
-    let item_num = std::cmp::min(item_count, state.selection);
-    let y = orig_y + item_num * 20 - 1;
+    let y = orig_y + state.selection * 20 - 1;
     if (state.time & 16) != 0 {
         vid.draw_patch(&wad, x - 28, y, "M_SLCTR1");
     } else {
