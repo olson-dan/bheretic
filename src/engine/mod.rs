@@ -1,4 +1,5 @@
 use anyhow::{bail, Result};
+use bevy::core::FixedTimestep;
 use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use byteorder::{LittleEndian, ReadBytesExt};
@@ -214,8 +215,8 @@ fn setup(mut assets: ResMut<Assets<Image>>, mut commands: Commands) {
             texture: assets.add(frame_buffer),
             sprite: Sprite {
                 custom_size: Some(Vec2::new(
-                    SCREEN_WIDTH as f32 * 1.5,
-                    SCREEN_HEIGHT as f32 * 1.5,
+                    SCREEN_WIDTH as f32 * 2.0,
+                    SCREEN_HEIGHT as f32 * 2.0,
                 )),
                 ..Default::default()
             },
@@ -237,17 +238,23 @@ pub fn render(
     }
 }
 
-pub struct DoomEngine {
+pub struct Engine {
     pub wadfile: &'static str,
 }
 
-impl Plugin for DoomEngine {
+impl Plugin for Engine {
     fn build(&self, app: &mut App) {
         let file = File::open(self.wadfile).expect("Couldn't open main wadfile.");
         let wad = Wad::from_reader(BufReader::new(file)).expect("Error reading main wadfile.");
 
         app.insert_resource(wad)
             .insert_resource(Vid::new())
-            .add_startup_system(setup);
+            .add_startup_system(setup)
+            .add_system_set(
+                SystemSet::new()
+                    .with_run_criteria(FixedTimestep::step(TIME_STEP as f64))
+                    .with_system(render)
+                    .after("game"),
+            );
     }
 }

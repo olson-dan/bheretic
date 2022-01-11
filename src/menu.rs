@@ -2,7 +2,7 @@ use crate::engine::{Patch, Vid, Wad, TIME_STEP};
 use bevy::core::FixedTimestep;
 use bevy::prelude::*;
 
-#[derive(PartialEq, Clone)]
+#[derive(PartialEq, Copy, Clone)]
 enum Menu {
     None,
     Main,
@@ -43,9 +43,10 @@ enum MenuAction {
 #[derive(Component)]
 struct MenuState {
     cur: Menu,
+    stack: Vec<Menu>,
     background: Option<&'static str>,
     time: u32,
-    selection: Option<usize>,
+    selection: usize,
 }
 
 #[derive(Component)]
@@ -238,9 +239,87 @@ fn setup(mut commands: Commands) {
     }
 }
 
-fn update(mut state: ResMut<MenuState>) {
-    if state.cur != Menu::None {
-        state.time += 1;
+fn update(
+    mut state: ResMut<MenuState>,
+    items: Query<(&MenuIdent, &MenuItem)>,
+    mut keyboard_input: ResMut<Input<KeyCode>>,
+    mut app_exit_events: EventWriter<bevy::app::AppExit>,
+) {
+    if state.cur == Menu::None {
+        if keyboard_input.clear_just_pressed(KeyCode::Escape) {
+            state.cur = Menu::Main;
+        }
+        return;
+    }
+
+    state.time += 1;
+
+    if keyboard_input.clear_just_pressed(KeyCode::Escape) {
+        if let Some(m) = state.stack.pop() {
+            state.cur = m;
+        } else {
+            state.cur = Menu::None;
+        }
+        return;
+    }
+
+    if keyboard_input.clear_just_pressed(KeyCode::Return) {
+        let mut item_count = 0;
+        for (ident, items) in items.iter() {
+            if ident.0 == state.cur {
+                if state.selection == item_count {
+                    match items.action {
+                        MenuAction::None => break,
+                        MenuAction::SetMenu(m) => {
+                            state.selection = 0;
+                            let last = state.cur;
+                            state.stack.push(last);
+                            state.cur = m;
+                            return;
+                        }
+                        MenuAction::QuitGame => {
+                            app_exit_events.send(bevy::app::AppExit);
+                            return;
+                        }
+                        _ => {}
+                    }
+                    //
+                }
+                item_count += 1;
+            }
+        }
+    }
+
+    let labels = items
+        .iter()
+        .filter(|(ident, _)| ident.0 == state.cur)
+        .map(|(_, item)| item.text)
+        .collect::<Vec<_>>();
+
+    if keyboard_input.clear_just_pressed(KeyCode::Up) {
+        loop {
+            if state.selection == 0 {
+                state.selection = labels.len() - 1;
+            } else {
+                state.selection -= 1;
+            }
+            if !labels[state.selection].is_empty() {
+                break;
+            }
+        }
+    }
+
+    if keyboard_input.clear_just_pressed(KeyCode::Down) {
+        loop {
+            if state.selection + 1 == labels.len() {
+                state.selection = 0;
+            } else {
+                state.selection += 1;
+            }
+            if !labels[state.selection].is_empty() {
+                break;
+            }
+        }
     }
 }
 
@@ -274,8 +353,10 @@ fn render(
     render_specific_menus(&wad, &mut vid, &state.cur, state.time);
 
     let mut y = orig_y;
+    let mut item_count = 0;
     for (ident, item) in items.iter() {
         if ident.0 == state.cur {
+            item_count += 1;
             if !item.text.is_empty() {
                 render_text(&wad, &mut vid, "FONTB_S", item.text, x, y);
             }
@@ -283,13 +364,12 @@ fn render(
         }
     }
 
-    if let Some(item_num) = state.selection {
-        let y = orig_y + item_num * 20 - 1;
-        if (state.time & 16) != 0 {
-            vid.draw_patch(&wad, x - 28, y, "M_SLCTR1");
-        } else {
-            vid.draw_patch(&wad, x - 28, y, "M_SLCTR2");
-        }
+    let item_num = std::cmp::min(item_count, state.selection);
+    let y = orig_y + item_num * 20 - 1;
+    if (state.time & 16) != 0 {
+        vid.draw_patch(&wad, x - 28, y, "M_SLCTR1");
+    } else {
+        vid.draw_patch(&wad, x - 28, y, "M_SLCTR2");
     }
 }
 
@@ -298,14 +378,16 @@ pub struct Menus;
 impl Plugin for Menus {
     fn build(&self, app: &mut App) {
         app.insert_resource(MenuState {
-            cur: Menu::Main,
+            cur: Menu::None,
+            stack: Vec::new(),
             background: Some("TITLE"),
-            selection: Some(0),
+            selection: 0,
             time: 0,
         })
         .add_startup_system(setup)
         .add_system_set(
             SystemSet::new()
+                .label("game")
                 .with_run_criteria(FixedTimestep::step(TIME_STEP as f64))
                 .with_system(update)
                 .with_system(render),
